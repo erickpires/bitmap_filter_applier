@@ -23,27 +23,27 @@ typedef int bool;
 
 #pragma pack(push, 1)
 typedef struct {
-    uint16 bfType;  //specifies the file type
-    uint32 bfSize;  //specifies the size in bytes of the bitmap file
-    uint16 bfReserved1;  //reserved; must be 0
-    uint16 bfReserved2;  //reserved; must be 0
-    uint32 bOffBits;  //species the offset in bytes from the bitmapfileheader to the bitmap bits
+    uint16 type;  // file magic number
+    uint32 file_size;
+    uint16 reserved1;  // must be 0
+    uint16 reserved2;  // must be 0
+    uint32 byte_offset;
 }BitmapFileHeader;
 #pragma pack(pop)
 
 #pragma pack(push, 1)
 typedef struct {
-    uint32 biSize;  //specifies the number of bytes required by the struct
-    int32 biWidth;  //specifies width in pixels
-    int32 biHeight;  //species height in pixels
-    uint16 biPlanes; //specifies the number of color planes, must be 1
-    uint16 biBitCount; //specifies the number of bit per pixel
-    uint32 biCompression;//specifies the type of compression
-    uint32 biSizeImage;  //size of image in bytes
-    int32 biXPelsPerMeter;  //number of pixels per meter in x axis
-    int32 biYPelsPerMeter;  //number of pixels per meter in y axis
-    uint32 biClrUsed;  //number of colors used by the bitmap
-    uint32 biClrImportant;  //number of colors that are important
+    uint32 header_size;
+    int32 image_width;
+    int32 image_height;
+    uint16 n_color_planes; // must be 1
+    uint16 bits_per_pixel;
+    uint32 compression_type;
+    uint32 image_size;  // size of image in bytes
+    int32 x_pixels_per_meter;
+    int32 y_pixels_per_meter;
+    uint32 colors_used;
+    uint32 colors_important;
 }BitmapInfoHeader;
 #pragma pack(pop)
 
@@ -55,48 +55,49 @@ void assert(bool condition, char* message) {
 }
 
 byte* load_bitmap_from_path(char* file_path,
-							BitmapFileHeader* fileHeader,
+							BitmapFileHeader* file_header,
 						    BitmapInfoHeader* bmp_header) {
 	FILE* file = fopen(file_path, "rb");
 	assert(file != NULL,"Could not open file to read");
 
-	fread(fileHeader, sizeof(BitmapFileHeader), 1, file);
-	assert(fileHeader->bfType == BMP_MAGIC_NUMBER, "This is not a bitmap file");
+	fread(file_header, sizeof(BitmapFileHeader), 1, file);
+	assert(file_header->type == BMP_MAGIC_NUMBER, "This is not a bitmap file");
 	fread(bmp_header, sizeof(BitmapInfoHeader), 1, file);
+	assert(bmp_header->compression_type == 0, "This program can not handle compressed bitmaps");
 
-	fseek(file, fileHeader->bOffBits, SEEK_SET);
+	fseek(file, file_header->byte_offset, SEEK_SET);
 
-	byte* result = (byte*) malloc(bmp_header->biSizeImage);
+	byte* result = (byte*) malloc(bmp_header->image_size);
 	assert(result != NULL, "Could not allocate memory");
-	fread(result,bmp_header->biSizeImage, 1, file);
+	fread(result,bmp_header->image_size, 1, file);
 
 	fclose(file);
 	return result;
 }
 
 void write_bitmap_to_path(char* path, byte* bmp_data,
-						  BitmapFileHeader* fileHeader,
+						  BitmapFileHeader* file_header,
 						  BitmapInfoHeader* bmp_header) {
 	FILE* file = fopen(path, "wb");
 	assert(file != NULL, "Could not open file to write");
 
-	fwrite(fileHeader, sizeof(BitmapFileHeader), 1, file);
+	fwrite(file_header, sizeof(BitmapFileHeader), 1, file);
 	fwrite(bmp_header, sizeof(BitmapInfoHeader), 1, file);
 
-	fwrite(bmp_data, bmp_header->biSizeImage, 1, file);
+	fwrite(bmp_data, bmp_header->image_size, 1, file);
 
 	fclose(file);
 }
 
 int main(int argc, char** argv){
 
-	BitmapFileHeader fileHeader = {};
+	BitmapFileHeader file_header = {};
 	BitmapInfoHeader bmp_header = {};
-	byte* image = load_bitmap_from_path("test.bmp", &fileHeader, &bmp_header);
+	byte* image = load_bitmap_from_path("test.bmp", &file_header, &bmp_header);
 
-	printf("Image has %dx%dx%d %dbits and %x compression\n", bmp_header.biWidth, bmp_header.biHeight, bmp_header.biClrImportant, bmp_header.biBitCount, bmp_header.biCompression);
+	printf("Image has %dx%dx%d %dbits and %x compression\n", bmp_header.image_width, bmp_header.image_height, bmp_header.colors_important, bmp_header.bits_per_pixel, bmp_header.compression_type);
 
-	write_bitmap_to_path("test2.bmp", image, &fileHeader, &bmp_header);
+	write_bitmap_to_path("test2.bmp", image, &file_header, &bmp_header);
 
     return 0;
 }
