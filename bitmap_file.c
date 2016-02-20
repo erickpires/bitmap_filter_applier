@@ -54,33 +54,49 @@ void assert(bool condition, char* message) {
 	}
 }
 
-// README(erick) : Is it interesting to pass the file header as argument?
 byte* load_bitmap_from_path(char* file_path,
+							BitmapFileHeader* fileHeader,
 						    BitmapInfoHeader* bmp_header) {
-	BitmapFileHeader fileHeader = {};
 	FILE* file = fopen(file_path, "rb");
-	assert(file != NULL,"Could not open file");
+	assert(file != NULL,"Could not open file to read");
 
-	fread(&fileHeader, sizeof(BitmapFileHeader), 1, file);
-	assert(fileHeader.bfType == BMP_MAGIC_NUMBER, "This is not a bitmap file");
+	fread(fileHeader, sizeof(BitmapFileHeader), 1, file);
+	assert(fileHeader->bfType == BMP_MAGIC_NUMBER, "This is not a bitmap file");
 	fread(bmp_header, sizeof(BitmapInfoHeader), 1, file);
 
-	fseek(file, fileHeader.bOffBits, SEEK_SET);
+	fseek(file, fileHeader->bOffBits, SEEK_SET);
 
 	byte* result = (byte*) malloc(bmp_header->biSizeImage);
 	assert(result != NULL, "Could not allocate memory");
-	fread(result, sizeof(byte), bmp_header->biSizeImage, file);
+	fread(result,bmp_header->biSizeImage, 1, file);
 
 	fclose(file);
 	return result;
 }
 
+void write_bitmap_to_path(char* path, byte* bmp_data,
+						  BitmapFileHeader* fileHeader,
+						  BitmapInfoHeader* bmp_header) {
+	FILE* file = fopen(path, "wb");
+	assert(file != NULL, "Could not open file to write");
+
+	fwrite(fileHeader, sizeof(BitmapFileHeader), 1, file);
+	fwrite(bmp_header, sizeof(BitmapInfoHeader), 1, file);
+
+	fwrite(bmp_data, bmp_header->biSizeImage, 1, file);
+
+	fclose(file);
+}
+
 int main(int argc, char** argv){
 
+	BitmapFileHeader fileHeader = {};
 	BitmapInfoHeader bmp_header = {};
-	byte* image = load_bitmap_from_path("test.bmp", &bmp_header);
+	byte* image = load_bitmap_from_path("test.bmp", &fileHeader, &bmp_header);
 
 	printf("Image has %dx%dx%d %dbits and %x compression\n", bmp_header.biWidth, bmp_header.biHeight, bmp_header.biClrImportant, bmp_header.biBitCount, bmp_header.biCompression);
+
+	write_bitmap_to_path("test2.bmp", image, &fileHeader, &bmp_header);
 
     return 0;
 }
