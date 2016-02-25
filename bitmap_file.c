@@ -21,7 +21,7 @@ typedef int bool;
 
 
 #define BMP_MAGIC_NUMBER 0x4D42
-#define COLOR_MAX 256
+#define COLOR_MAX 255
 
 #if 0
 /*
