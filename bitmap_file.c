@@ -89,10 +89,12 @@ typedef struct {
 	union {
 		float g;
 		float m;
+		float cb;
 	};
 	union {
 		float r;
 		float c;
+		float cr;
 	};
 } PixelFloat;
 
@@ -136,6 +138,18 @@ void convert_image_to_float(byte* colors, float* float_colors, uint n_bytes) {
 void convert_image_from_float(float* float_colors, byte* colors, uint n_bytes) {
 	for(uint byte_index = 0; byte_index < n_bytes; byte_index++) {
 		*colors++ =(byte) (*float_colors++ * (float) COLOR_MAX);
+	}
+}
+
+#define convert_cmy_to_rgb convert_rgb_to_cmy
+void convert_rgb_to_cmy(PixelFloatMatrix* image) {
+	for(uint line = 0; line < image->n_lines; line++) {
+		for(uint column = 0; column < image->n_columns; column++) {
+			PixelFloat* current_pixel = &(get_matrix_value(*image, line, column));
+			current_pixel->c = 1.0 - current_pixel->r;
+			current_pixel->m = 1.0 - current_pixel->g;
+			current_pixel->y = 1.0 - current_pixel->b;
+		}
 	}
 }
 
@@ -312,29 +326,31 @@ int main(int argc, char** argv){
 	  6,  36,  90, 120,  90,  36,  6,
 	  1,   6,  10,  20,  10,   6,  1};
 
-	 FloatMatrix filter = {};
-	 filter.data = filter_values;
-	 filter.n_lines = 7;
-	 filter.n_columns = 7;
+	FloatMatrix filter = {};
+	filter.data = filter_values;
+	filter.n_lines = 7;
+	filter.n_columns = 7;
 
-	 PixelFloatMatrix input_image = {};
-	 input_image.data = (PixelFloat*) image_float;
-	 input_image.n_lines = bmp_header.image_height;
-	 input_image.n_columns = bmp_header.image_width;
+	PixelFloatMatrix input_image = {};
+	input_image.data = (PixelFloat*) image_float;
+	input_image.n_lines = bmp_header.image_height;
+	input_image.n_columns = bmp_header.image_width;
 
-	 PixelFloatMatrix output_image = {};
-	 output_image.data = (PixelFloat*) image_float_applied;
-	 output_image.n_lines = bmp_header.image_height;
-	 output_image.n_columns = bmp_header.image_width;
+	PixelFloatMatrix output_image = {};
+	output_image.data = (PixelFloat*) image_float_applied;
+	output_image.n_lines = bmp_header.image_height;
+	output_image.n_columns = bmp_header.image_width;
 
-	 normalize_filter(&filter);
-	 apply_filter_to_image_selectively(&input_image, &output_image, &filter, RedGreenBlue);
+	normalize_filter(&filter);
+	apply_filter_to_image_selectively(&input_image, &output_image, &filter, RedGreenBlue);
 
 	// for(uint pixel_index = 0; pixel_index < bmp_header.image_size; pixel_index += 3) {
 	// 	Pixel* pixel = (Pixel*) (image + pixel_index);
 	// 	switch_colors(pixel, RedBlue);
 	// 	switch_colors(pixel, GreenBlue);
 	// }
+	convert_rgb_to_cmy(&output_image);
+	convert_cmy_to_rgb(&output_image);
 
 	convert_image_from_float(image_float_applied, image, bmp_header.image_size);
 
