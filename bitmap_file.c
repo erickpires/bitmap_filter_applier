@@ -116,15 +116,18 @@ typedef enum {
 	Green 			= 0x02,
 	Blue 			= 0x04,
 	RedGreen		= Red 	| Green,
+	GreenRed		= Red 	| Green,
 	RedBlue			= Red 	| Blue,
+	BlueRed			= Red 	| Blue,
 	GreenBlue		= Green | Blue,
+	BlueGreen		= Green | Blue,
 	RedGreenBlue	= Red 	| Green | Blue
 } Colors;
 
 void assert(bool condition, char* message) {
 	if(!condition) {
 		fprintf(stderr, "%s\n", message);
-		*((int*)NULL) = 0;
+		// *((int*)NULL) = 0;
 		exit(1);
 	}
 }
