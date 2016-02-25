@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <math.h>
 
 typedef int8_t int8;
 typedef int16_t int16;
@@ -89,24 +90,24 @@ typedef struct {
 	union {
 		float g;
 		float m;
-		float cb;
+		float Cb;
 	};
 	union {
 		float r;
 		float c;
-		float cr;
+		float Cr;
 	};
 } PixelFloat;
 
-#define get_matrix_value(matrix, line, column) ((matrix).data[line * (matrix).n_columns + column])
+#define get_matrix_value(matrix, line, column) ((matrix).values[line * (matrix).n_columns + column])
 typedef struct {
-	float* data;
+	float* values;
 	uint n_lines;
 	uint n_columns;
 } FloatMatrix;
 
 typedef struct {
-	PixelFloat* data;
+	PixelFloat* values;
 	uint n_lines;
 	uint n_columns;
 } PixelFloatMatrix;
@@ -152,6 +153,19 @@ void convert_rgb_to_cmy(PixelFloatMatrix* image) {
 			current_pixel->c = 1.0 - current_pixel->r;
 			current_pixel->m = 1.0 - current_pixel->g;
 			current_pixel->y = 1.0 - current_pixel->b;
+		}
+	}
+}
+
+// TODO(erick)
+void convert_rgb_to_yCbCr(PixelFloatMatrix* image) {}
+void convert_yCbCr_to_rgb(PixelFloatMatrix* image) {}
+
+void yCbCr_image_to_black_and_white(PixelFloatMatrix* image) {
+	for(uint line = 0; line < image->n_lines; line++) {
+		for(uint column = 0; column < image->n_columns; column++) {
+			get_matrix_value(*image, line, column).Cb = 0.0f;
+			get_matrix_value(*image, line, column).Cr = 0.0f;
 		}
 	}
 }
@@ -217,6 +231,40 @@ void apply_filter_to_image(PixelFloatMatrix* input_image, PixelFloatMatrix* outp
 	apply_filter_to_image_selectively(input_image, output_image, filter, RedGreenBlue);
 }
 
+// TODO(erick): Sobel operator
+void apply_sobel_operator(PixelFloatMatrix* input_image, PixelFloatMatrix* output_image) {
+	static float sobel_x_values[] =
+	{-1,  0,  1,
+	 -2,  0,  2,
+	 -1,  0,  1};
+	static float sobel_y_values[] =
+	{-1, -2, -1,
+	  0,  0,  0,
+	  1,  2,  1};
+
+	static FloatMatrix sobel_x = {sobel_x_values, 3, 3};
+	static FloatMatrix sobel_y = {sobel_y_values, 3, 3};
+
+	convert_rgb_to_yCbCr(input_image);
+	yCbCr_image_to_black_and_white(input_image);
+	for(uint line = 0; line < input_image->n_lines; line++) {
+		for(uint column = 0; column < input_image->n_columns; column++) {
+			// TODO(erick): Red should be Luminescence
+			PixelFloat applied_x = apply_filter_at_selectively(input_image, &sobel_x, line, column, Red);
+			PixelFloat applied_y = apply_filter_at_selectively(input_image, &sobel_y, line, column, Red);
+
+			float g_x = applied_x.y;
+			float g_y = applied_y.y;
+
+			float magnitude = sqrtf(g_x * g_x + g_y * g_y);
+			// float angle = atan2f(g_y, g_x);
+
+			get_matrix_value(*output_image, line, column).y = magnitude;
+		}
+	}
+	convert_yCbCr_to_rgb(output_image);
+}
+
 void normalize_filter(FloatMatrix* filter) {
 	float acc = 0;
 	for(uint line = 0; line < filter->n_lines; line++) {
@@ -261,12 +309,11 @@ byte* load_bitmap_from_path(char* file_path,
 	return result;
 }
 
-
-void switch_colors(Pixel* pixel, Colors switching) {
+void swap_colors(Pixel* pixel, Colors swapping) {
 	byte* left;
 	byte* right;
 
-	switch(switching) {
+	switch(swapping) {
 		case RedGreen :
 			left = &(pixel->r);
 			right = &(pixel->g);
@@ -330,17 +377,17 @@ int main(int argc, char** argv){
 	  1,   6,  10,  20,  10,   6,  1};
 
 	FloatMatrix filter = {};
-	filter.data = filter_values;
+	filter.values = filter_values;
 	filter.n_lines = 7;
 	filter.n_columns = 7;
 
 	PixelFloatMatrix input_image = {};
-	input_image.data = (PixelFloat*) image_float;
+	input_image.values = (PixelFloat*) image_float;
 	input_image.n_lines = bmp_header.image_height;
 	input_image.n_columns = bmp_header.image_width;
 
 	PixelFloatMatrix output_image = {};
-	output_image.data = (PixelFloat*) image_float_applied;
+	output_image.values = (PixelFloat*) image_float_applied;
 	output_image.n_lines = bmp_header.image_height;
 	output_image.n_columns = bmp_header.image_width;
 
