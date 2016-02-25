@@ -82,9 +82,18 @@ typedef struct {
 // PixelFloat is an struct representing a pixel where each color is a
 // floating-point number between 0.0 and 1.0
 typedef struct {
-	float b;
-	float g;
-	float r;
+	union {
+		float b;
+		float y;
+	};
+	union {
+		float g;
+		float m;
+	};
+	union {
+		float r;
+		float c;
+	};
 } PixelFloat;
 
 #define get_matrix_value(matrix, line, column) ((matrix).data[line * (matrix).n_columns + column])
@@ -99,6 +108,16 @@ typedef struct {
 	uint n_lines;
 	uint n_columns;
 } PixelFloatMatrix;
+
+typedef enum {
+	Red 			= 0x01,
+	Green 			= 0x02,
+	Blue 			= 0x04,
+	RedGreen		= Red 	| Green,
+	RedBlue			= Red 	| Blue,
+	GreenBlue		= Green | Blue,
+	RedGreenBlue	= Red 	| Green | Blue
+} Colors;
 
 void assert(bool condition, char* message) {
 	if(!condition) {
@@ -120,7 +139,8 @@ void convert_image_from_float(float* float_colors, byte* colors, uint n_bytes) {
 	}
 }
 
-PixelFloat apply_filter_at(PixelFloatMatrix* image, FloatMatrix* filter, uint i, uint j) {
+PixelFloat apply_filter_at_selectively(PixelFloatMatrix* image, FloatMatrix* filter, uint i, uint j,
+									   Colors affected_colors) {
 	PixelFloat result = {};
 
 	int line_base = i - (filter->n_lines / 2);
@@ -149,25 +169,35 @@ PixelFloat apply_filter_at(PixelFloatMatrix* image, FloatMatrix* filter, uint i,
 			// NOTE(erick): The image position is assumed to be sanitized by now
 			PixelFloat pixel = get_matrix_value(*image, line_pos, column_pos);
 			float filter_value = get_matrix_value(*filter, line, column);
-			result.r +=  pixel.r * filter_value;
-			result.g +=  pixel.g * filter_value;
-			result.b +=  pixel.b * filter_value;
+			if(affected_colors & Red)   result.r +=  pixel.r * filter_value;
+			if(affected_colors & Green) result.g +=  pixel.g * filter_value;
+			if(affected_colors & Blue)  result.b +=  pixel.b * filter_value;
 		}
 	}
+
+	if(!(affected_colors & Red)) 	result.r = get_matrix_value(*image, i, j).r;
+	if(!(affected_colors & Green)) 	result.g = get_matrix_value(*image, i, j).g;
+	if(!(affected_colors & Blue))  	result.b = get_matrix_value(*image, i, j).b;
 
 	return result;
 }
 
-void apply_filter_to_image(PixelFloatMatrix* input_image, PixelFloatMatrix* output_image, FloatMatrix* filter) {
+void apply_filter_to_image_selectively(PixelFloatMatrix* input_image, PixelFloatMatrix* output_image,
+									   FloatMatrix* filter, Colors affected_colors) {
 	for(uint line = 0; line < input_image->n_lines; line++) {
 		for(uint column = 0; column < input_image->n_columns; column++) {
-			PixelFloat applied = apply_filter_at(input_image, filter, line, column);
+			PixelFloat applied = apply_filter_at_selectively(input_image, filter, line, column, affected_colors);
 			PixelFloat* output_pixel = &(get_matrix_value(*output_image, line, column));
 			output_pixel->r = applied.r;
 			output_pixel->g = applied.g;
 			output_pixel->b = applied.b;
 		}
 	}
+}
+
+void apply_filter_to_image(PixelFloatMatrix* input_image, PixelFloatMatrix* output_image,
+						   FloatMatrix* filter) {
+	apply_filter_to_image_selectively(input_image, output_image, filter, RedGreenBlue);
 }
 
 void normalize_filter(FloatMatrix* filter) {
@@ -214,13 +244,8 @@ byte* load_bitmap_from_path(char* file_path,
 	return result;
 }
 
-typedef enum {
-	RedGreen,
-	RedBlue,
-	GreenBlue
-} Switching;
 
-void switch_colors(Pixel* pixel, Switching switching) {
+void switch_colors(Pixel* pixel, Colors switching) {
 	byte* left;
 	byte* right;
 
@@ -237,6 +262,8 @@ void switch_colors(Pixel* pixel, Switching switching) {
 			left = &(pixel->g);
 			right = &(pixel->b);
 			break;
+		default:
+			return;
 	}
 
 	*left  ^= *right;
@@ -269,17 +296,26 @@ int main(int argc, char** argv){
 
 	convert_image_to_float(image, image_float, bmp_header.image_size);
 
+	// float filter_values[] =
+	// {1,  4,  6,  4, 1,
+	//  4, 16, 24, 16, 4,
+	//  6, 24, 36, 24, 6,
+	//  4, 16, 24, 16, 4,
+	//  1,  4,  6,  4, 1};
+
 	float filter_values[] =
-	{1,  4,  6,  4, 1,
-	 4, 16, 24, 16, 4,
-	 6, 24, 36, 24, 6,
-	 4, 16, 24, 16, 4,
-	 1,  4,  6,  4, 1};
+	{ 1,   6,  15,  20,  15,   6,  1,
+	  6,  36,  90, 120,  90,  36,  6,
+	 15,  90, 225, 300, 225,  90, 15,
+	 20, 120, 300, 400, 300, 120, 20,
+	 15,  90, 225, 300, 225,  90, 15,
+	  6,  36,  90, 120,  90,  36,  6,
+	  1,   6,  10,  20,  10,   6,  1};
 
 	 FloatMatrix filter = {};
 	 filter.data = filter_values;
-	 filter.n_lines = 5;
-	 filter.n_columns = 5;
+	 filter.n_lines = 7;
+	 filter.n_columns = 7;
 
 	 PixelFloatMatrix input_image = {};
 	 input_image.data = (PixelFloat*) image_float;
@@ -292,7 +328,7 @@ int main(int argc, char** argv){
 	 output_image.n_columns = bmp_header.image_width;
 
 	 normalize_filter(&filter);
-	 apply_filter_to_image(&input_image, &output_image, &filter);
+	 apply_filter_to_image_selectively(&input_image, &output_image, &filter, RedGreenBlue);
 
 	// for(uint pixel_index = 0; pixel_index < bmp_header.image_size; pixel_index += 3) {
 	// 	Pixel* pixel = (Pixel*) (image + pixel_index);
