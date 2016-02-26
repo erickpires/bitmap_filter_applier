@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <math.h>
+#include <stdarg.h>
 
 typedef int8_t int8;
 typedef int16_t int16;
@@ -154,12 +155,17 @@ void apply_transformation_image(PixelFloatMatrix* image, FloatMatrix* transform)
 	}
 }
 
-void assert(bool condition, char* message) {
+void assert(bool condition, char* message, ...) {
+	va_list args_list;
+	va_start(args_list, message);
+
 	if(!condition) {
-		fprintf(stderr, "%s\n", message);
+		vfprintf(stderr, message, args_list);
 		// *((int*)NULL) = 0;
+		va_end(args_list);
 		exit(1);
 	}
+	va_end(args_list);
 }
 
 void convert_image_to_float(byte* colors, float* float_colors, uint n_bytes) {
@@ -186,7 +192,7 @@ void convert_rgb_to_cmy(PixelFloatMatrix* image) {
 	}
 }
 
-// TODO(erick)
+// NOTE(erick): https://msdn.microsoft.com/en-us/library/ff635643.aspx
 void convert_rgb_to_yCbCr(PixelFloatMatrix* image) {
 	static float conversion_values[] =
 	{
@@ -278,7 +284,6 @@ void apply_filter_to_image(PixelFloatMatrix* input_image, PixelFloatMatrix* outp
 	apply_filter_to_image_selectively(input_image, output_image, filter, RedGreenBlue);
 }
 
-// TODO(erick): Sobel operator
 void apply_sobel_operator(PixelFloatMatrix* input_image, PixelFloatMatrix* output_image) {
 	static float sobel_x_values[] =
 	{-1,  0,  1,
@@ -303,10 +308,12 @@ void apply_sobel_operator(PixelFloatMatrix* input_image, PixelFloatMatrix* outpu
 			float g_x = applied_x.Y;
 			float g_y = applied_y.Y;
 
-			float magnitude = sqrtf(g_x * g_x + g_y * g_y);
-			// float angle = atan2f(g_y, g_x);
+			float magnitude = sqrtf(g_x * g_x + g_y * g_y) / 8.0f; // NOTE(erick):Normalized
+			float angle = atan2f(g_y, g_x);
 
 			get_matrix_value(*output_image, line, column).Y = magnitude;
+			get_matrix_value(*output_image, line, column).Cb = cos(angle) / 2.0 * magnitude;
+			get_matrix_value(*output_image, line, column).Cr = 0.0f;
 		}
 	}
 	convert_yCbCr_to_rgb(output_image);
@@ -339,17 +346,17 @@ byte* load_bitmap_from_path(char* file_path,
 							BitmapFileHeader* file_header,
 						    BitmapInfoHeader* bmp_header) {
 	FILE* file = fopen(file_path, "rb");
-	assert(file != NULL,"Could not open file to read");
+	assert(file != NULL,"Could not open file to read\n");
 
 	fread(file_header, sizeof(BitmapFileHeader), 1, file);
-	assert(file_header->type == BMP_MAGIC_NUMBER, "This is not a bitmap file");
+	assert(file_header->type == BMP_MAGIC_NUMBER, "This is not a bitmap file\n");
 	fread(bmp_header, sizeof(BitmapInfoHeader), 1, file);
-	assert(bmp_header->compression_type == 0, "This program can not handle compressed bitmaps");
+	assert(bmp_header->compression_type == 0, "This program can not handle compressed bitmaps\n");
 
 	fseek(file, file_header->byte_offset, SEEK_SET);
 
 	byte* result = (byte*) malloc(bmp_header->image_size);
-	assert(result != NULL, "Could not allocate memory");
+	assert(result != NULL, "Could not allocate memory\n");
 	fread(result,bmp_header->image_size, 1, file);
 
 	fclose(file);
@@ -386,7 +393,7 @@ void write_bitmap_to_path(char* path, byte* bmp_data,
 						  BitmapFileHeader* file_header,
 						  BitmapInfoHeader* bmp_header) {
 	FILE* file = fopen(path, "wb");
-	assert(file != NULL, "Could not open file to write");
+	assert(file != NULL, "Could not open file to write\n");
 
 	fwrite(file_header, sizeof(BitmapFileHeader), 1, file);
 	fwrite(bmp_header, sizeof(BitmapInfoHeader), 1, file);
@@ -398,9 +405,14 @@ void write_bitmap_to_path(char* path, byte* bmp_data,
 
 int main(int argc, char** argv){
 
+	assert(argc == 3, "Usage:\n%s <input> <output>\n", argv[0]);
+
+	char* input_file_path = argv[1];
+	char* output_file_path= argv[2];
+
 	BitmapFileHeader file_header = {};
 	BitmapInfoHeader bmp_header = {};
-	byte* image = load_bitmap_from_path("/home/erick/C/bmp_filter_applier/test.bmp", &file_header, &bmp_header);
+	byte* image = load_bitmap_from_path(input_file_path, &file_header, &bmp_header);
 
 	float* image_float = (float*) calloc(bmp_header.image_size, sizeof(float));
 	float* image_float_applied = (float*) calloc(bmp_header.image_size, sizeof(float));
@@ -414,14 +426,26 @@ int main(int argc, char** argv){
 	//  4, 16, 24, 16, 4,
 	//  1,  4,  6,  4, 1};
 
+	// float filter_values[] =
+	// { 1,   6,  15,  20,  15,   6,  1,
+	//   6,  36,  90, 120,  90,  36,  6,
+	//  15,  90, 225, 300, 225,  90, 15,
+	//  20, 120, 300, 400, 300, 120, 20,
+	//  15,  90, 225, 300, 225,  90, 15,
+	//   6,  36,  90, 120,  90,  36,  6,
+	//   1,   6,  10,  20,  10,   6,  1};
+
 	float filter_values[] =
-	{ 1,   6,  15,  20,  15,   6,  1,
-	  6,  36,  90, 120,  90,  36,  6,
-	 15,  90, 225, 300, 225,  90, 15,
-	 20, 120, 300, 400, 300, 120, 20,
-	 15,  90, 225, 300, 225,  90, 15,
-	  6,  36,  90, 120,  90,  36,  6,
-	  1,   6,  10,  20,  10,   6,  1};
+	{
+		0.00000067, 0.00002292,	0.00019117,	0.00038771,	0.00019117,	0.00002292,	0.00000067,
+		0.00002292, 0.00078634,	0.00655965,	0.01330373,	0.00655965,	0.00078633,	0.00002292,
+		0.00019117, 0.00655965,	0.05472157,	0.11098164,	0.05472157,	0.00655965,	0.00019117,
+		0.00038771, 0.01330373,	0.11098164,	0.22508352,	0.11098164,	0.01330373,	0.00038771,
+		0.00019117, 0.00655965,	0.05472157,	0.11098164,	0.05472157,	0.00655965,	0.00019117,
+		0.00002292, 0.00078633,	0.00655965,	0.01330373,	0.00655965,	0.00078633,	0.00002292,
+		0.00000067, 0.00002292,	0.00019117,	0.00038771,	0.00019117,	0.00002292,	0.00000067
+	};
+
 
 	FloatMatrix filter = {};
 	filter.values = filter_values;
@@ -439,15 +463,20 @@ int main(int argc, char** argv){
 	output_image.n_columns = bmp_header.image_width;
 
 	normalize_filter(&filter);
-	//apply_filter_to_image_selectively(&input_image, &output_image, &filter, RedGreenBlue);
+	apply_filter_to_image(&input_image, &output_image, &filter);
+	apply_filter_to_image(&output_image, &input_image, &filter);
+	// apply_filter_to_image(&input_image, &output_image, &filter);
+	// apply_filter_to_image(&output_image, &input_image, &filter);
+	// apply_filter_to_image(&input_image, &output_image, &filter);
+	// apply_filter_to_image(&output_image, &input_image, &filter);
 
 	// for(uint pixel_index = 0; pixel_index < bmp_header.image_size; pixel_index += 3) {
 	// 	Pixel* pixel = (Pixel*) (image + pixel_index);
 	// 	switch_colors(pixel, RedBlue);
 	// 	switch_colors(pixel, GreenBlue);
 	// }
-	convert_rgb_to_cmy(&output_image);
-	convert_cmy_to_rgb(&output_image);
+	// convert_rgb_to_cmy(&output_image);
+	// convert_cmy_to_rgb(&output_image);
 
 	// convert_rgb_to_yCbCr(&output_image);
 	apply_sobel_operator(&input_image, &output_image);
@@ -476,7 +505,7 @@ int main(int argc, char** argv){
 
 	printf("Image has %dx%dx%d %dbits and %x compression\n", bmp_header.image_width, bmp_header.image_height, bmp_header.colors_important, bmp_header.bits_per_pixel, bmp_header.compression_type);
 
-	write_bitmap_to_path("test2.bmp", image, &file_header_to_write, &bmp_header_to_write);
+	write_bitmap_to_path(output_file_path, image, &file_header_to_write, &bmp_header_to_write);
 
     return 0;
 }
