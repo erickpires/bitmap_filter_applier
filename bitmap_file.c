@@ -87,7 +87,7 @@ typedef struct {
 	union {
 		float b;
 		float y;
-		float Cr;
+		float Y;
 	};
 	union {
 		float g;
@@ -97,7 +97,7 @@ typedef struct {
 	union {
 		float r;
 		float c;
-		float Y;
+		float Cr;
 	};
 } PixelFloat;
 
@@ -168,15 +168,23 @@ void assert(bool condition, char* message, ...) {
 	va_end(args_list);
 }
 
-void convert_image_to_float(byte* colors, float* float_colors, uint n_bytes) {
-	for(uint byte_index = 0; byte_index < n_bytes; byte_index++) {
-		*float_colors++ = (float) *colors++ / (float) COLOR_MAX;
+void convert_image_to_float(byte* colors, PixelFloatMatrix* float_image, uint n_bytes) {
+	PixelFloat* pixel = float_image->values;
+	for(uint byte_index = 0; byte_index < n_bytes; byte_index += 3) {
+		pixel->b = (float) *colors++ / (float) COLOR_MAX;
+		pixel->g = (float) *colors++ / (float) COLOR_MAX;
+		pixel->r = (float) *colors++ / (float) COLOR_MAX;
+		pixel++;
 	}
 }
 
-void convert_image_from_float(float* float_colors, byte* colors, uint n_bytes) {
-	for(uint byte_index = 0; byte_index < n_bytes; byte_index++) {
-		*colors++ = (byte) (*float_colors++ * (float) COLOR_MAX);
+void convert_image_from_float(PixelFloatMatrix* float_image, byte* colors, uint n_bytes) {
+	PixelFloat* pixel = float_image->values;
+	for(uint byte_index = 0; byte_index < n_bytes; byte_index += 3) {
+		*colors++ = (byte) (pixel->b * (float) COLOR_MAX);
+		*colors++ = (byte) (pixel->g * (float) COLOR_MAX);
+		*colors++ = (byte) (pixel->r * (float) COLOR_MAX);
+		pixel++;
 	}
 }
 
@@ -193,12 +201,13 @@ void convert_rgb_to_cmy(PixelFloatMatrix* image) {
 }
 
 // NOTE(erick): https://msdn.microsoft.com/en-us/library/ff635643.aspx
+//				modified because our RGB and YCbCr doesn't match
 void convert_rgb_to_yCbCr(PixelFloatMatrix* image) {
 	static float conversion_values[] =
 	{
-		 0.299,     0.587,     0.114,
-		-0.168935, -0.331665,  0.50059,
-		 0.499813, -0.418531, -0.081282
+		 0.499813, -0.418531, -0.081282,
+		-0.168935, -0.331665,  0.50059 ,
+		 0.299   ,  0.587   ,  0.114
 	};
 	static FloatMatrix conversion = {conversion_values, 3, 3};
 	apply_transformation_image(image, &conversion);
@@ -206,9 +215,9 @@ void convert_rgb_to_yCbCr(PixelFloatMatrix* image) {
 void convert_yCbCr_to_rgb(PixelFloatMatrix* image) {
 	static float conversion_values[] =
 	{
-		1.0     ,  -0.0    ,   1.40252,
-   		0.999997,  -0.34373,  -0.714401,
-   		1.00002 ,   1.76991,  -0.000012644
+		 1.40252    ,  -0.0    ,  1.0     ,
+   		-0.714401   ,  -0.34373,  0.999997,
+   		-0.000012644,   1.76991,  1.00002
 	};
 	static FloatMatrix conversion = {conversion_values, 3, 3};
 	apply_transformation_image(image, &conversion);
@@ -301,9 +310,9 @@ void apply_sobel_operator(PixelFloatMatrix* input_image, PixelFloatMatrix* outpu
 	yCbCr_image_to_black_and_white(input_image);
 	for(uint line = 0; line < input_image->n_lines; line++) {
 		for(uint column = 0; column < input_image->n_columns; column++) {
-			// TODO(erick): Red should be Luminescence
-			PixelFloat applied_x = apply_filter_at_selectively(input_image, &sobel_x, line, column, Red);
-			PixelFloat applied_y = apply_filter_at_selectively(input_image, &sobel_y, line, column, Red);
+			// TODO(erick): Blue should be Luminescence
+			PixelFloat applied_x = apply_filter_at_selectively(input_image, &sobel_x, line, column, Blue);
+			PixelFloat applied_y = apply_filter_at_selectively(input_image, &sobel_y, line, column, Blue);
 
 			float g_x = applied_x.Y;
 			float g_y = applied_y.Y;
@@ -417,7 +426,6 @@ int main(int argc, char** argv){
 	float* image_float = (float*) calloc(bmp_header.image_size, sizeof(float));
 	float* image_float_applied = (float*) calloc(bmp_header.image_size, sizeof(float));
 
-	convert_image_to_float(image, image_float, bmp_header.image_size);
 
 	// float filter_values[] =
 	// {1,  4,  6,  4, 1,
@@ -457,14 +465,16 @@ int main(int argc, char** argv){
 	input_image.n_lines = bmp_header.image_height;
 	input_image.n_columns = bmp_header.image_width;
 
+	convert_image_to_float(image, &input_image, bmp_header.image_size);
+
 	PixelFloatMatrix output_image = {};
 	output_image.values = (PixelFloat*) image_float_applied;
 	output_image.n_lines = bmp_header.image_height;
 	output_image.n_columns = bmp_header.image_width;
 
 	normalize_filter(&filter);
-	apply_filter_to_image(&input_image, &output_image, &filter);
-	apply_filter_to_image(&output_image, &input_image, &filter);
+	// apply_filter_to_image(&input_image, &output_image, &filter);
+	// apply_filter_to_image(&output_image, &input_image, &filter);
 	// apply_filter_to_image(&input_image, &output_image, &filter);
 	// apply_filter_to_image(&output_image, &input_image, &filter);
 	// apply_filter_to_image(&input_image, &output_image, &filter);
@@ -482,7 +492,13 @@ int main(int argc, char** argv){
 	apply_sobel_operator(&input_image, &output_image);
 	// convert_yCbCr_to_rgb(&output_image);
 
-	convert_image_from_float(image_float_applied, image, bmp_header.image_size);
+	// output_image = input_image;
+
+	// convert_rgb_to_yCbCr(&output_image);
+	// yCbCr_image_to_black_and_white(&output_image);
+	// convert_yCbCr_to_rgb(&output_image);
+
+	convert_image_from_float(&output_image, image, bmp_header.image_size);
 
 	BitmapFileHeader file_header_to_write = {};
 	BitmapInfoHeader bmp_header_to_write = {};
