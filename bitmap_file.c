@@ -351,6 +351,53 @@ void print_filter(FloatMatrix* filter) {
 	}
 }
 
+void copy_pixel(PixelFloatMatrix* input, PixelFloatMatrix* output, uint line, uint column) {
+	PixelFloat input_pixel = (get_matrix_value(*input, line, column));
+	PixelFloat* output_pixel = &(get_matrix_value(*output, line, column));
+	output_pixel->r = input_pixel.r;
+	output_pixel->g = input_pixel.g;
+	output_pixel->b = input_pixel.b;
+}
+
+void copy_line(PixelFloatMatrix* input, PixelFloatMatrix* output, uint line) {
+	// NOTE(erick): input->n_columns must be smaller than output->n_columns
+	//              it is asserted in the beginning of combine_images
+	for(uint column = 0; column < input->n_columns; column++) {
+		copy_pixel(input, output, line, column);
+	}
+}
+
+void combine_images(PixelFloatMatrix* input_1, PixelFloatMatrix* input_2,
+					PixelFloatMatrix* output, float input_1_percentage) {
+	float input_2_percentage = 1.0f - input_1_percentage;
+	uint max_lines = fmaxf(input_1->n_lines, input_2->n_lines);
+	uint max_columns = fmaxf(input_1->n_columns, input_2->n_columns);
+
+	assert(output->n_lines >= max_lines, "Output should have %d lines, but has only %d.", max_lines, output->n_lines);
+	assert(output->n_columns >= max_columns, "Output should have %d columns, but has only %d.", max_columns, output->n_columns);
+
+	for(uint line = 0; line < max_lines; line++) {
+		//NOTE(erick): if input_1->n_lines is smaller than max_lines, than input_2->n_lines IS max_lines
+		if(line > input_1->n_lines) copy_line(input_2, output, line);
+		else if(line > input_2->n_lines) copy_line(input_1, output, line);
+		else {
+			for(uint column = 0; column < max_columns; column++) {
+				//NOTE(erick): The argument above also apply to columns
+				if(column > input_1->n_columns) copy_pixel(input_2, output, line, column);
+				else if(column > input_2->n_columns) copy_pixel(input_1, output, line, column);
+				else {
+					PixelFloat pixel_1 = (get_matrix_value(*input_1, line, column));
+					PixelFloat pixel_2 = (get_matrix_value(*input_2, line, column));
+					PixelFloat* output_pixel = &(get_matrix_value(*output, line, column));
+					output_pixel->r = pixel_1.r * input_1_percentage + pixel_2.r * input_2_percentage;
+					output_pixel->g = pixel_1.g * input_1_percentage + pixel_2.g * input_2_percentage;
+					output_pixel->b = pixel_1.b * input_1_percentage + pixel_2.b * input_2_percentage;
+				}
+			}
+		}
+	}
+}
+
 byte* load_bitmap_from_path(char* file_path,
 							BitmapFileHeader* file_header,
 						    BitmapInfoHeader* bmp_header) {
@@ -419,11 +466,18 @@ int main(int argc, char** argv){
 	char* input_file_path = argv[1];
 	char* output_file_path= argv[2];
 
+	char* input_file_path_2 = "test.bmp";
+
 	BitmapFileHeader file_header = {};
 	BitmapInfoHeader bmp_header = {};
 	byte* image = load_bitmap_from_path(input_file_path, &file_header, &bmp_header);
 
+	BitmapFileHeader file_header_2 = {};
+	BitmapInfoHeader bmp_header_2 = {};
+	byte* image_2 = load_bitmap_from_path(input_file_path_2, &file_header_2, &bmp_header_2);
+
 	float* image_float = (float*) calloc(bmp_header.image_size, sizeof(float));
+	float* image_float_2 = (float*) calloc(bmp_header_2.image_size, sizeof(float));
 	float* image_float_applied = (float*) calloc(bmp_header.image_size, sizeof(float));
 
 
@@ -465,7 +519,13 @@ int main(int argc, char** argv){
 	input_image.n_lines = bmp_header.image_height;
 	input_image.n_columns = bmp_header.image_width;
 
+	PixelFloatMatrix input_image_2 = {};
+	input_image_2.values = (PixelFloat*) image_float_2;
+	input_image_2.n_lines = bmp_header_2.image_height;
+	input_image_2.n_columns = bmp_header_2.image_width;
+
 	convert_image_to_float(image, &input_image, bmp_header.image_size);
+	convert_image_to_float(image_2, &input_image_2, bmp_header_2.image_size);
 
 	PixelFloatMatrix output_image = {};
 	output_image.values = (PixelFloat*) image_float_applied;
@@ -489,10 +549,15 @@ int main(int argc, char** argv){
 	// convert_cmy_to_rgb(&output_image);
 
 	// convert_rgb_to_yCbCr(&output_image);
-	apply_sobel_operator(&input_image, &output_image);
+	// apply_sobel_operator(&input_image_2, &output_image);
 	// convert_yCbCr_to_rgb(&output_image);
 
 	// output_image = input_image;
+
+	convert_rgb_to_yCbCr(&input_image_2);
+	convert_rgb_to_yCbCr(&input_image);
+	combine_images(&input_image, &input_image_2, &output_image, 0.3f);
+	convert_yCbCr_to_rgb(&output_image);
 
 	// convert_rgb_to_yCbCr(&output_image);
 	// yCbCr_image_to_black_and_white(&output_image);
