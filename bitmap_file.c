@@ -93,11 +93,13 @@ typedef struct {
 		float g;
 		float m;
 		float Cb;
+		float h;
 	};
 	union {
 		float r;
 		float c;
 		float Cr;
+		float s;
 	};
 } PixelFloat;
 
@@ -199,6 +201,122 @@ void convert_rgb_to_cmy(PixelFloatMatrix* image) {
 		}
 	}
 }
+
+//NOTE(erick): References
+//			   http://kickjava.com/src/org/eclipse/swt/graphics/RGB.java.htm
+//			   http://www.docjar.com/html/api/java/awt/Color.java.html
+PixelFloat convert_rgb_pixel_to_hsb(PixelFloat* pixel) {
+	PixelFloat result = {};
+
+    float r = pixel->r;
+    float g = pixel->g;
+    float b = pixel->b;
+    float max = fmaxf(fmaxf(r, g), b);
+    float min = fminf(fminf(r, g), b);
+    float delta = max - min;
+
+	result.b = max;
+	result.s = max == 0 ? 0 : delta / max;
+	if(delta != 0) {
+	    if(r == max) {
+	        result.h = (g - b) / delta;
+	    }
+	    else if (g == max) {
+	            result.h = 2 + (b - r) / delta;
+	        }
+	    else {
+	        result.h = 4 + (r - g) / delta;
+	    }
+
+	    result.h *= 60;
+    	if (result.h < 0) result.h += 360;
+    }
+
+    return result;
+}
+
+//NOTE(erick): From the code used as reference, hue ranges from 0 to 360
+//			   brightness from 0 to 1 and saturation from 0 to 1
+//TODO(erick): Verify these ranges
+PixelFloat convert_hsb_pixel_to_rgb(PixelFloat* pixel) {
+    PixelFloat result;
+    float hue = pixel->h;
+    float saturation = pixel->s;
+    float brightness = pixel->b;
+    if (saturation == 0) {
+        result.r = brightness;
+        result.g = brightness;
+        result.b = brightness;
+    }
+    else {
+        if (hue == 360) hue = 0;
+        hue /= 60;
+        int i = (int)hue;
+        float f = hue - i;
+        float p = brightness * (1 - saturation);
+        float q = brightness * (1 - saturation * f);
+        float t = brightness * (1 - saturation * (1 - f));
+        switch(i) {
+            case 0:
+                result.r = brightness;
+                result.g = t;
+                result.b = p;
+                break;
+            case 1:
+                result.r = q;
+                result.g = brightness;
+                result.b = p;
+                break;
+            case 2:
+                result.r = p;
+                result.g = brightness;
+                result.b = t;
+                break;
+            case 3:
+                result.r = p;
+                result.g = q;
+                result.b = brightness;
+                break;
+            case 4:
+                result.r = t;
+                result.g = p;
+                result.b = brightness;
+                break;
+            case 5:
+            default:
+                result.r = brightness;
+                result.g = p;
+                result.b = q;
+                break;
+        }
+    }
+    return result;
+}
+
+void convert_rgb_to_hsb(PixelFloatMatrix* image) {
+	for(uint line = 0; line < image->n_lines; line++) {
+		for(uint column = 0; column < image->n_columns; column++) {
+			PixelFloat* pixel = &(get_matrix_value(*image, line, column));
+			PixelFloat new_pixel = convert_rgb_pixel_to_hsb(pixel);
+			pixel->h = new_pixel.h;
+			pixel->s = new_pixel.s;
+			pixel->b = new_pixel.b;
+		}
+	}
+}
+
+void convert_hsb_to_rgb(PixelFloatMatrix* image) {
+	for(uint line = 0; line < image->n_lines; line++) {
+		for(uint column = 0; column < image->n_columns; column++) {
+			PixelFloat* pixel = &(get_matrix_value(*image, line, column));
+			PixelFloat new_pixel = convert_hsb_pixel_to_rgb(pixel);
+			pixel->r = new_pixel.r;
+			pixel->g = new_pixel.g;
+			pixel->b = new_pixel.b;
+		}
+	}
+}
+
 
 // NOTE(erick): https://msdn.microsoft.com/en-us/library/ff635643.aspx
 //				modified because our RGB and YCbCr doesn't match
@@ -554,10 +672,15 @@ int main(int argc, char** argv){
 
 	// output_image = input_image;
 
-	convert_rgb_to_yCbCr(&input_image_2);
-	convert_rgb_to_yCbCr(&input_image);
-	combine_images(&input_image, &input_image_2, &output_image, 0.3f);
-	convert_yCbCr_to_rgb(&output_image);
+	// convert_rgb_to_yCbCr(&input_image_2);
+	// convert_rgb_to_yCbCr(&input_image);
+	// combine_images(&input_image, &input_image_2, &output_image, 0.3f);
+	// yCbCr_image_to_black_and_white(&output_image);
+	// convert_yCbCr_to_rgb(&output_image);
+
+	output_image = input_image;
+	convert_rgb_to_hsb(&output_image);
+	convert_hsb_to_rgb(&output_image);
 
 	// convert_rgb_to_yCbCr(&output_image);
 	// yCbCr_image_to_black_and_white(&output_image);
