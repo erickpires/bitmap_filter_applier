@@ -75,6 +75,52 @@ typedef struct {
 }BitmapInfoHeader;
 #pragma pack(pop)
 
+void assert(bool condition, char* message, ...) {
+	va_list args_list;
+	va_start(args_list, message);
+
+	if(!condition) {
+		vfprintf(stderr, message, args_list);
+		// *((int*)NULL) = 0;
+		va_end(args_list);
+		exit(1);
+	}
+	va_end(args_list);
+}
+
+typedef struct {
+	float r;
+	float i;
+}complexf;
+
+complexf complexf_sum(complexf left, complexf right) {
+	complexf result = {left.r + right.r, left.i + right.i};
+	return result;
+}
+
+//NOTE(erick): (a+bi)*(c+di) = ac+adi+bci-db = (ac-db)+(ad+bc)i
+complexf complexf_mul(complexf left, complexf right) {
+	complexf result;
+	result.r = left.r * right.r - left.i * right.i;
+	result.i = left.r * right.i + left.i * right.r;
+	return result;
+}
+
+complexf complexf_square(complexf number) {
+	complexf result = complexf_mul(number, number);
+	return result;
+}
+
+float complexf_norm_sq(complexf number) {
+	float result = number.r * number.r + number.i * number.i;
+	return result;
+}
+
+float complexf_norm(complexf number) {
+	float result = sqrtf(complexf_norm_sq(number));
+	return result;
+}
+
 typedef struct {
 	byte b;
 	byte g;
@@ -157,18 +203,6 @@ void apply_transformation_image(PixelFloatMatrix* image, FloatMatrix* transform)
 	}
 }
 
-void assert(bool condition, char* message, ...) {
-	va_list args_list;
-	va_start(args_list, message);
-
-	if(!condition) {
-		vfprintf(stderr, message, args_list);
-		// *((int*)NULL) = 0;
-		va_end(args_list);
-		exit(1);
-	}
-	va_end(args_list);
-}
 
 void convert_image_to_float(byte* colors, PixelFloatMatrix* float_image, uint n_bytes) {
 	PixelFloat* pixel = float_image->values;
@@ -446,6 +480,64 @@ void apply_sobel_operator(PixelFloatMatrix* input_image, PixelFloatMatrix* outpu
 	convert_yCbCr_to_rgb(output_image);
 }
 
+uint mandelbrot_point_escape(complexf point, uint max_iterations, complexf* escape_point) {
+	complexf z = {0.0f, 0.0f};
+	uint current_iteration = 0;
+
+	do {
+		z = complexf_sum(complexf_square(z), point);
+		current_iteration++;
+	} while(complexf_norm_sq(z) <= 4 && current_iteration < max_iterations);
+
+	*escape_point = z;
+	return current_iteration;
+}
+
+void mandelbrot_simple_coloring(PixelFloat* pixel, uint escape_interation, uint max_iterations) {
+	float hue_per_unit = (float) 360.0f / (float) max_iterations;
+
+	float hue_value = 240.0f + hue_per_unit * escape_interation;
+	if(hue_value > 360.0f) hue_value -= 360.0f;
+
+	pixel->h = hue_value;
+	pixel->s = 1.0f;
+	pixel->b = 0.8f;
+}
+
+void mandelbrot_smooth_coloring(PixelFloat* pixel, uint escape_interation, uint max_iterations, complexf escape_point) {
+	float smooth_value = escape_interation + 1 - logf(logf(complexf_norm(escape_point))) / logf(2);
+	smooth_value /= max_iterations;
+	smooth_value *= 360.0f;
+
+	float hue_value = 240.0f + smooth_value;
+	if(hue_value > 360.0f) hue_value -= 360.0f;
+
+	pixel->h = hue_value;
+	pixel->s = 0.7f;
+	pixel->b = 0.8f;
+}
+
+void draw_mandelbrot(PixelFloatMatrix* image, float scale, complexf center, uint max_iterations) {
+	int image_center_r = image->n_columns / 2;
+	int image_center_i = image->n_lines / 2;
+
+	for(int line = 0; line < image->n_lines; line++) {
+		float line_in_complex = (float) (line - image_center_i) / scale + center.i;
+		for (int column = 0; column < image->n_columns; column++) {
+			complexf escape_point;
+			float column_in_complex = (float) (column - image_center_r) / scale + center.r;
+
+			complexf current_point = {column_in_complex, line_in_complex};
+			uint escape_interation = mandelbrot_point_escape(current_point, max_iterations, &escape_point);
+			if(escape_interation < max_iterations) {
+				PixelFloat* pixel = &(get_matrix_value(*image, line, column));
+				mandelbrot_simple_coloring(pixel, escape_interation, max_iterations);
+				// mandelbrot_smooth_coloring(pixel, escape_interation, max_iterations, escape_point);
+			}
+		}
+	}
+}
+
 void normalize_filter(FloatMatrix* filter) {
 	float acc = 0;
 	for(uint line = 0; line < filter->n_lines; line++) {
@@ -678,9 +770,11 @@ int main(int argc, char** argv){
 	// yCbCr_image_to_black_and_white(&output_image);
 	// convert_yCbCr_to_rgb(&output_image);
 
-	output_image = input_image;
-	convert_rgb_to_hsb(&output_image);
-	convert_hsb_to_rgb(&output_image);
+	// output_image = input_image;
+	// convert_rgb_to_hsb(&output_image);
+	// convert_hsb_to_rgb(&output_image);
+
+	combine_images(&input_image, &input_image_2, &output_image, 0.45);
 
 	// convert_rgb_to_yCbCr(&output_image);
 	// yCbCr_image_to_black_and_white(&output_image);
@@ -707,9 +801,18 @@ int main(int argc, char** argv){
 	bmp_header_to_write.colors_used = bmp_header.colors_used;
 	bmp_header_to_write.colors_important = bmp_header.colors_important;
 
-	printf("Image has %dx%dx%d %dbits and %x compression\n", bmp_header.image_width, bmp_header.image_height, bmp_header.colors_important, bmp_header.bits_per_pixel, bmp_header.compression_type);
+	printf("Image has %dx%dx%d %dbits and %x compression\n", bmp_header.image_width, bmp_header.image_height,
+	 bmp_header.colors_important, bmp_header.bits_per_pixel, bmp_header.compression_type);
 
 	write_bitmap_to_path(output_file_path, image, &file_header_to_write, &bmp_header_to_write);
 
     return 0;
 }
+	// float* image_float_3 = (float*) calloc(bmp_header.image_size, sizeof(float));
+	// PixelFloatMatrix image_3 = {(PixelFloat*) image_float_3, input_image.n_lines, input_image.n_columns};
+
+	// complexf center = {-1.772f, 0.0f};
+	// draw_mandelbrot(&image_3, 10200.0f, center, 500);
+	// convert_hsb_to_rgb(&image_3);
+
+	// combine_images(&input_image, &image_3, &output_image, 0.4);
