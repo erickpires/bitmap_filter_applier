@@ -9,6 +9,7 @@ typedef int16_t int16;
 typedef int32_t int32;
 typedef int64_t int64;
 
+typedef unsigned int uint;
 typedef uint8_t uint8;
 typedef uint16_t uint16;
 typedef uint32_t uint32;
@@ -176,7 +177,7 @@ typedef enum {
 } Colors;
 
 void apply_transformation_to_pixel(PixelFloat* pixel, FloatMatrix* transform) {
-	PixelFloat tmp_pixel = {};
+	PixelFloat tmp_pixel = {0};
 	tmp_pixel.r = get_matrix_value(*transform, 0, 0) * pixel->r +
 				  get_matrix_value(*transform, 0, 1) * pixel->g +
 				  get_matrix_value(*transform, 0, 2) * pixel->b;
@@ -240,7 +241,7 @@ void convert_rgb_to_cmy(PixelFloatMatrix* image) {
 //			   http://kickjava.com/src/org/eclipse/swt/graphics/RGB.java.htm
 //			   http://www.docjar.com/html/api/java/awt/Color.java.html
 PixelFloat convert_rgb_pixel_to_hsb(PixelFloat* pixel) {
-	PixelFloat result = {};
+	PixelFloat result = {0};
 
     float r = pixel->r;
     float g = pixel->g;
@@ -386,7 +387,7 @@ void yCbCr_image_to_black_and_white(PixelFloatMatrix* image) {
 
 PixelFloat apply_filter_at_selectively(PixelFloatMatrix* image, FloatMatrix* filter, uint i, uint j,
 									   Colors affected_colors) {
-	PixelFloat result = {};
+	PixelFloat result = {0};
 
 	int line_base = i - (filter->n_lines / 2);
 	int column_base = j - (filter->n_columns / 2);
@@ -678,12 +679,12 @@ int main(int argc, char** argv){
 
 	char* input_file_path_2 = "test.bmp";
 
-	BitmapFileHeader file_header = {};
-	BitmapInfoHeader bmp_header = {};
+	BitmapFileHeader file_header = {0};
+	BitmapInfoHeader bmp_header = {0};
 	byte* image = load_bitmap_from_path(input_file_path, &file_header, &bmp_header);
 
-	BitmapFileHeader file_header_2 = {};
-	BitmapInfoHeader bmp_header_2 = {};
+	BitmapFileHeader file_header_2 = {0};
+	BitmapInfoHeader bmp_header_2 = {0};
 	byte* image_2 = load_bitmap_from_path(input_file_path_2, &file_header_2, &bmp_header_2);
 
 	float* image_float = (float*) calloc(bmp_header.image_size, sizeof(float));
@@ -719,17 +720,17 @@ int main(int argc, char** argv){
 	};
 
 
-	FloatMatrix filter = {};
+	FloatMatrix filter = {0};
 	filter.values = filter_values;
 	filter.n_lines = 7;
 	filter.n_columns = 7;
 
-	PixelFloatMatrix input_image = {};
+	PixelFloatMatrix input_image = {0};
 	input_image.values = (PixelFloat*) image_float;
 	input_image.n_lines = bmp_header.image_height;
 	input_image.n_columns = bmp_header.image_width;
 
-	PixelFloatMatrix input_image_2 = {};
+	PixelFloatMatrix input_image_2 = {0};
 	input_image_2.values = (PixelFloat*) image_float_2;
 	input_image_2.n_lines = bmp_header_2.image_height;
 	input_image_2.n_columns = bmp_header_2.image_width;
@@ -737,7 +738,7 @@ int main(int argc, char** argv){
 	convert_image_to_float(image, &input_image, bmp_header.image_size);
 	convert_image_to_float(image_2, &input_image_2, bmp_header_2.image_size);
 
-	PixelFloatMatrix output_image = {};
+	PixelFloatMatrix output_image = {0};
 	output_image.values = (PixelFloat*) image_float_applied;
 	output_image.n_lines = bmp_header.image_height;
 	output_image.n_columns = bmp_header.image_width;
@@ -770,20 +771,20 @@ int main(int argc, char** argv){
 	// yCbCr_image_to_black_and_white(&output_image);
 	// convert_yCbCr_to_rgb(&output_image);
 
-	// output_image = input_image;
+	output_image = input_image;
 	// convert_rgb_to_hsb(&output_image);
 	// convert_hsb_to_rgb(&output_image);
 
-	combine_images(&input_image, &input_image_2, &output_image, 0.45);
+	// combine_images(&input_image, &input_image_2, &output_image, 0.45);
 
-	// convert_rgb_to_yCbCr(&output_image);
-	// yCbCr_image_to_black_and_white(&output_image);
-	// convert_yCbCr_to_rgb(&output_image);
+	convert_rgb_to_yCbCr(&output_image);
+	yCbCr_image_to_black_and_white(&output_image);
+	convert_yCbCr_to_rgb(&output_image);
 
 	convert_image_from_float(&output_image, image, bmp_header.image_size);
 
-	BitmapFileHeader file_header_to_write = {};
-	BitmapInfoHeader bmp_header_to_write = {};
+	BitmapFileHeader file_header_to_write = {0};
+	BitmapInfoHeader bmp_header_to_write = {0};
 
 	file_header_to_write.type = BMP_MAGIC_NUMBER;
 	file_header_to_write.file_size = sizeof(BitmapFileHeader) + sizeof(BitmapInfoHeader) + bmp_header.image_size;
